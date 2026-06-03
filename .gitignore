@@ -1,0 +1,35 @@
+# Bytecode
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Benchmark artifacts
+benchmark_stats.csv
+out_*.txt
+
+# Distribution
+dist/
+build/
+*.egg-info/
+
+# Visual Studio
+.vs/
+*.ipch
+
+# 其他项目
+C++/
