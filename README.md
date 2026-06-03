@@ -7,6 +7,9 @@
 
 ---
 
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/m15154178071-cmyk/blackhole-diffusion/blob/main/try_blackhole.ipynb)
+
+
 ## 📦 Installation / 安装
 
 ```bash
