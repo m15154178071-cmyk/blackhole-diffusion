@@ -4,7 +4,8 @@ from __future__ import annotations
 import argparse
 import array
 import ctypes
-import gc           # 加在这里
+import enum
+import gc
 import io
 import itertools
 import math
@@ -15,16 +16,15 @@ import subprocess
 import sys
 import threading
 import time
-import enum
 
 # 立即禁用自动垃圾回收，防止程序退出时卡顿
-gc.disable()        # 加在这里
+gc.disable()
 
 # 2. 标准库子模块 (Standard Library from ... import ...)
 from collections import Counter, defaultdict, deque
-from multiprocessing import Pool
 from dataclasses import dataclass, fields
 from datetime import datetime
+from multiprocessing import Pool
 from typing import (
     Any,
     Callable,
@@ -38,6 +38,7 @@ from typing import (
     Optional,
     Set,
     Tuple,
+    Union,
 )
 
 # 3. 平台特定模块 (Platform-specific)
@@ -47,21 +48,7 @@ except ImportError:
     # Linux/Mac 上没有 wintypes，忽略即可
     wintypes = None
 
-
-import time
-import sys
-import ctypes
-import os
-from typing import Optional, Union, Dict, List
-
-
-import os
-import sys
-import time
-import ctypes
-from typing import Dict, List, Union, Optional
-
-
+    
 # ==========================================
 # 通用彩色调试日志工具 (Debug) - 修复版
 # ==========================================
