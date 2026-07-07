@@ -1,4 +1,4 @@
-# Blackhole Diffusion（黑洞弥散）
+# blackhole-diffusion（黑洞弥散）
 
 > A pure-Python graph engine for extracting full-rank chordless cycle bases.  
 > Zero dependencies — runs anywhere Python runs.
