@@ -7,19 +7,15 @@ Blackhole Diffusion explores candidate cycles, expands cycle boundaries, and use
 
 Blackhole Diffusion 通过候选环搜索、黑洞边界扩展和 GF(2) 增量消元构造满秩无弦环基。它**不承诺求得严格意义上的最小环基（MCB）**：满秩无弦环基不等于总环长全局最小。
 
-> **Refactoring status / 重构状态**  
-> This README records the refactoring baseline and acceptance plan. The modular architecture, correctness improvements, and performance changes described below are targets—not claims that the refactor has already been implemented or verified.  
-> 本 README 记录重构基线与验收方案。下述模块架构、正确性改进和性能变化均为目标，不代表重构已完成或已通过验证。
-
 ## Installation / 安装
 
 ```bash
 pip install blackhole-diffusion
 ```
 
-The library aims to use only the Python standard library at runtime. Optional third-party packages may be used for external benchmark comparisons; they are not required by the core library.
+The core library is designed to run with the Python standard library. Optional third-party packages may be used for external benchmark comparisons; they are not required by the core library.
 
-核心库目标是仅依赖 Python 标准库运行。外部基准对比可能使用第三方包，但核心库不依赖这些包。
+核心库设计为仅依赖 Python 标准库运行。外部基准对比可选用第三方工具，但核心库不依赖这些工具。
 
 ## Quick start / 快速开始
 
@@ -36,13 +32,13 @@ for cycle in cycles:
 See [examples_basic_usage.py](examples_basic_usage.py) for more examples.  
 更多示例见 [examples_basic_usage.py](examples_basic_usage.py)。
 
-## Refactoring plan / 重构方案
+## Refactoring overview / 重构概述
 
-The goal is to make the implementation easier to maintain, test, extend, and use independently—without replacing or simplifying the algorithm's core mechanisms.
+The refactoring organizes the algorithm into clearer responsibilities while preserving its distinctive cycle-search, blackhole-expansion, and elimination workflow. The aim is to make the implementation easier to maintain, test, extend, and use through a stable public interface.
 
-重构目标是在不替换或简化核心算法机制的前提下，让实现更易维护、测试、扩展和独立使用。
+本次重构围绕职责拆分和数据边界整理算法工程结构，同时保留候选环搜索、黑洞扩展和消元等核心流程，提升代码的可维护性、可测试性、可扩展性，并稳定对外接口。
 
-### Target module boundaries / 目标模块边界
+### Module responsibilities / 模块职责
 
 | Area | Responsibility |
 | --- | --- |
@@ -56,31 +52,31 @@ The goal is to make the implementation easier to maintain, test, extend, and use
 | Scheduling | Iteration, state transitions, and termination |
 | Public API | Input normalization and result conversion |
 
-以上是目标职责划分，不要求机械地一项对应一个文件。最终边界应结合更新后的源码审查确定。
+以上是各功能层的职责划分，具体文件组织以源码实现为准。
 
-### Shared data contracts / 统一数据契约
+### Shared cycle and path data / 统一环与路径数据
 
-The recorded implementation represents a cycle or path as `(edge_ids, edges, nodes)`:
+A cycle or path is represented internally as `(edge_ids, edges, nodes)`:
 
-- `edge_ids`: identifiers used internally, including by elimination.
-- `edges`: original graph edges, used for result restoration and edge-level checks.
-- `nodes`: vertices in the structure.
+- `edge_ids`: internal edge identifiers used by search and elimination.
+- `edges`: original graph edges used for result restoration and edge-level checks.
+- `nodes`: vertices in the cycle or path.
 
-Keep these meanings explicit at module boundaries. Do not mix node sets with edge sets or silently combine incompatible edge-ID spaces.
+内部环或路径使用 `(edge_ids, edges, nodes)` 统一表达：`edge_ids` 是搜索和消元使用的内部边编号；`edges` 是用于结果还原和边关系检查的原始图边；`nodes` 是环或路径中的顶点。明确三者语义可避免节点集、边集和不同边编号空间混用。
 
-当前记录中的环或路径使用 `(edge_ids, edges, nodes)` 表示：`edge_ids` 用于内部处理（包括消元），`edges` 是用于结果还原和边关系检查的原始图边，`nodes` 是结构中的顶点。模块边界应明确这些语义，避免混用节点集和边集，或混淆不同的边 ID 空间。
+### Structural validation and sparse elimination / 结构验证与稀疏消元
 
-### Validation and elimination / 验证与消元
+Shared validation builds local adjacency and checks node/edge counts, edge membership, connectivity, and the structure-specific degree constraints for paths and cycles. The elimination layer separates the roles of `BlockwiseCycleReducer`, `SingleDimensionCycleReducer`, and `CSRBlackholeDevourer`, with CSR-based sparse storage and incremental GF(2) independence checks.
 
-The recorded baseline includes `_validate_and_build_local_path()` for shared structural checks such as node/edge counts, edge membership, local adjacency construction, and connectivity. Path and cycle degree constraints should then be checked according to their respective structure.
+统一验证流程负责构建局部邻接关系，并检查节点与边的数量关系、边的归属、连通性，以及路径或环各自的度数约束。消元层区分 `BlockwiseCycleReducer`、`SingleDimensionCycleReducer` 和 `CSRBlackholeDevourer` 的职责，采用 CSR 稀疏存储和 GF(2) 增量独立性判断。
 
-The elimination layer should keep the responsibilities of `BlockwiseCycleReducer`, `SingleDimensionCycleReducer`, and `CSRBlackholeDevourer` clear while exposing consistent inputs and outputs. The CSR implementation's compact `array.array('Q')` representation and incremental GF(2) independence checks are important design elements to preserve where confirmed by the updated source.
+### Algorithm workflow / 算法流程
 
-当前记录中的基线包含 `_validate_and_build_local_path()`，用于共享的结构检查，例如节点数与边数关系、边的归属、局部邻接构建和连通性；之后再按路径或环分别验证度数约束。
+The execution flow separates candidate processing and elimination into explicit stages, including safe elimination, standard probing, alternating annihilation, and completion. Candidate discovery, dynamic ranking, blackhole boundary expansion, and completion work together rather than reducing the algorithm to ordinary cycle search followed only by a spanning-tree fallback.
 
-消元层应明确 `BlockwiseCycleReducer`、`SingleDimensionCycleReducer` 和 `CSRBlackholeDevourer` 的职责，同时提供一致的输入输出。若更新后的源码确认仍采用 CSR 紧凑存储 `array.array('Q')` 和 GF(2) 增量独立性判断，应在重构中保留这些设计要点。
+执行流程将候选处理和消元划分为明确阶段，包括安全消元、标准探测、交替湮灭和完成阶段。候选搜索、动态排序、黑洞边界扩展与补全协同工作，不将完整算法简化为普通环搜索加生成树兜底。
 
-### Algorithm mechanisms to preserve / 必须保留的算法机制
+### Core mechanisms / 核心机制
 
 - Multi-dimensional candidate-cycle mining.
 - Chordless-cycle and independent-path search.
@@ -91,43 +87,62 @@ The elimination layer should keep the responsibilities of `BlockwiseCycleReducer
 - Long-cycle completion and local Horton completion.
 - A spanning-tree fundamental-cycle fallback.
 
-重构应保留多维候选环挖掘、无弦环与独立路径搜索、黑洞边界识别和扩展、候选动态排序、CSR 稀疏消元与 GF(2) 独立性判断、增量消元、长环及局部 Horton 补全，以及生成树基本环兜底。不能将完整流程简化成普通环搜索加生成树兜底。
+保留多维候选环挖掘、无弦环和独立路径搜索、黑洞边界识别与扩展、候选动态排序、CSR 稀疏消元与 GF(2) 独立性判断、增量消元、长环及局部 Horton 补全，以及生成树基本环兜底。
 
-## Correctness and acceptance criteria / 正确性与验收标准
+## Correctness criteria / 正确性标准
 
-A refactored version should be accepted only after it has been checked against the updated implementation and tests. At minimum, verify that:
+A valid full-rank chordless cycle basis should satisfy the following checks:
 
-1. Every output edge is an edge in the input graph.
-2. Every output is a valid simple cycle and is chordless.
+1. Every output edge belongs to the input graph.
+2. Every output is a valid simple, chordless cycle.
 3. Output cycles are linearly independent over GF(2).
-4. The number of cycles equals the target cycle-space rank, `E - V + C`, where `C` is the number of connected components (with the graph's vertex/edge conventions stated and consistently applied).
+4. The number of cycles equals the target cycle-space rank, `E - V + C`, where `C` is the number of connected components; graph vertex/edge counting conventions must be consistent.
 5. No cycle is duplicated.
 6. Disconnected graphs are handled correctly.
 7. Vertex-set and original-edge-set input interfaces have consistent result semantics.
-8. The result is described as a full-rank chordless cycle basis—not as a strict MCB unless that property is separately proved and tested.
 
-重构版本必须结合更新后的实现和测试验收，至少验证：输出边均来自输入图；每个结果都是合法简单无弦环；环在 GF(2) 上线性独立；环数量等于目标环空间秩 `E - V + C`（其中 `C` 为连通分量数，并统一说明顶点和边的计数约定）；无重复环；正确处理非连通图；顶点集合与原始边集合两种输入接口语义一致；并且只在另行证明和测试后才称为严格 MCB。
+满秩无弦环基应满足：输出边均属于输入图；每个输出都是合法简单无弦环；环在 GF(2) 上线性独立；环数量等于目标环空间秩 `E - V + C`（`C` 为连通分量数，顶点和边的计数约定应保持一致）；无重复环；正确处理非连通图；顶点集合与原始边集合两种输入接口具有一致的结果语义。
+
+A full-rank chordless cycle basis is not necessarily a strict MCB. Minimum-total-length claims require separate proof and verification.
+
+满秩无弦环基不必然是严格 MCB。关于总环长最小的结论需要单独证明和验证。
 
 ## Benchmarking / 基准测试
 
-Architecture changes alone do not establish a performance improvement. Compare the old and refactored versions on the same datasets, Python version, and test environment. Record:
+Architecture changes alone do not establish a performance improvement. Compare versions using the same datasets, Python version, and test environment. Record:
 
 - Total runtime and peak memory.
 - Number of candidates and elimination operations.
 - Final basis size and cycle-length distribution.
 - Correctness audit results, including rank and chordlessness.
 
-架构拆分本身不能证明性能提升。前后版本必须使用相同数据集、Python 版本和测试环境进行对比，并记录总运行时间、峰值内存、候选数量、消元次数、最终环基数量、环长分布及秩和无弦性等正确性审计结果。
+架构调整本身不能证明性能提升。版本对比应使用相同数据集、Python 版本和测试环境，并记录总运行时间、峰值内存、候选数量、消元次数、最终环基数量、环长分布，以及秩和无弦性等正确性审计结果。
 
-Optional external tools can be used as independent comparison baselines; they are not runtime dependencies of the library. Results should distinguish a full-rank chordless basis from an exact minimum cycle basis.
+Optional external tools can serve as independent comparison baselines; they are not runtime dependencies of the library. Benchmark reports should distinguish a full-rank chordless basis from an exact minimum cycle basis.
 
-可选地使用外部工具作为独立对照基线，但它们不是本库的运行依赖。报告应明确区分满秩无弦环基与精确最小环基。
+可选外部工具可作为独立对照基线，但不是本库的运行依赖。基准报告应明确区分满秩无弦环基与精确最小环基。
 
-## Development notes / 开发说明
+## Version refactoring update summary / 版本重构更新功能汇总
 
-The refactoring record dated 2026-11-12 was prepared from the supplied `Blackhole_Base(1).py` source. The repository code may not yet match that source or this plan. Revisit the architecture, API compatibility, and every performance or correctness claim after the updated code is available; publish measured results only after reproducible tests.
+This refactoring update brings the algorithm's engineering structure and internal contracts into focus:
 
-2026-11-12 的重构记录依据用户提供的 `Blackhole_Base(1).py` 整理，仓库当前代码可能尚未与该源码或本方案一致。待更新代码提交后，应重新审查架构、接口兼容性及所有性能和正确性声明；只有在可复现测试完成后，才发布实测结论。
+- Separates graph data, encoding, validation, search, blackhole construction, elimination, candidate management, scheduling, and public API responsibilities.
+- Unifies the internal cycle/path representation as `(edge_ids, edges, nodes)`.
+- Consolidates shared structural validation for paths and cycles.
+- Clarifies reducer responsibilities and standardizes elimination boundaries while retaining CSR-based GF(2) incremental processing.
+- Makes algorithm stages and termination flow easier to follow.
+- Preserves candidate mining, blackhole expansion, dynamic ranking, long-cycle and local Horton completion, and the spanning-tree fallback.
+- Defines correctness and reproducible benchmarking criteria for ongoing verification.
+
+本次版本重构更新重点如下：
+
+- 梳理图数据、编码、验证、搜索、黑洞构建、消元、候选管理、调度及公开接口等职责边界。
+- 统一内部环与路径数据结构为 `(edge_ids, edges, nodes)`。
+- 汇总路径和环共用的结构验证流程。
+- 明确不同消元器的职责并规范消元接口，同时保留基于 CSR 的 GF(2) 增量处理。
+- 梳理算法阶段切换及终止流程。
+- 保留候选环挖掘、黑洞扩展、动态排序、长环和局部 Horton 补全及生成树兜底机制。
+- 明确正确性验收和可复现基准测试要求，便于持续验证与优化。
 
 ## License / 许可证
 
