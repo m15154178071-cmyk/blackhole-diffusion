@@ -20,6 +20,7 @@ Thumbs.db
 
 # Benchmark artifacts
 benchmark_stats.csv
+out.txt
 out_*.txt
 
 # Distribution

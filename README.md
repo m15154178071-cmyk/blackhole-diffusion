@@ -29,8 +29,8 @@ for cycle in cycles:
     print(sorted(cycle))
 ```
 
-See [examples_basic_usage.py](examples_basic_usage.py) for more examples.  
-更多示例见 [examples_basic_usage.py](examples_basic_usage.py)。
+See [examples/examples_basic_usage.py](examples/examples_basic_usage.py) for more examples.  
+更多示例见 [examples/examples_basic_usage.py](examples/examples_basic_usage.py)。
 
 ## Refactoring overview / 重构概述
 
@@ -143,6 +143,24 @@ This refactoring update brings the algorithm's engineering structure and interna
 - 梳理算法阶段切换及终止流程。
 - 保留候选环挖掘、黑洞扩展、动态排序、长环和局部 Horton 补全及生成树兜底机制。
 - 明确正确性验收和可复现基准测试要求，便于持续验证与优化。
+
+## Release Notes & Updates / 版本更新记录
+
+### v0.1.1 (Refactor & Zero-Dependency Release / 重构与零依赖更新)
+
+- **Zero-Dependency Core / 核心零依赖解耦**：
+  - 核心算法文件 `blackhole_diffusion.py` 彻底解耦外部调试工具，内联纯静默轻量桩，真正做到仅依赖 Python 3.8+ 标准库，生产环境开箱即用无污染。
+- **Auditor & Benchmark Alignment / 审计与基准测试对齐**：
+  - 全面重写并修复 `benchmark.py` 中的 `CycleAuditor`，基于图导出子图独立进行度数与连通性核查，完美对接 `iGraph`、`NetworkX (NX-MCB)` 与 `黑洞弥散` 的三方交叉审计对比。
+- **Graceful Fallbacks / 可选依赖优雅降级**：
+  - `benchmark.py` 对 `rich` 与 `igraph` 增加自动降级保护，在未安装第三方扩展库的纯净环境中自动退化为标准终端输出，杜绝 IDE 和静态类型检查器的模块缺失报错。
+  - 在 `pyproject.toml` 中通过 PEP 621 标准声明 `[project.optional-dependencies] benchmark`。
+- **Official Test Suite / 官方测试套件落地**：
+  - 新增纯标准库单元测试 `test/test_basic.py`（覆盖空图、树图、K4 完全图、共享边与无弦性排他校验）；
+  - 新增真实拓扑自动化测试 `test/test_real_graphs.py`（覆盖 10 组典型真实拓扑数据集的满秩与无弦验证）。
+- **Standalone Execution & Links / 独立运行与文档修正**：
+  - `examples/examples_basic_usage.py` 与 `test/generate_large_cases.py` 支持在任意工作目录下直接独立执行；
+  - 修正 README 中的示例超链接跳转。
 
 ## License / 许可证
 
