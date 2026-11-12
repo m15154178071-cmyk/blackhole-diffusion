@@ -18,18 +18,57 @@ import time
 from typing import Dict, List, FrozenSet, Set, Tuple, Optional
 
 import networkx as nx
-from rich.console import Console
-from rich.table import Table
-from rich.panel import Panel
-from rich.layout import Layout
-from rich.live import Live
+# 确保在任何目录下运行都能找到同目录的 blackhole_diffusion
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+# 可选第三方依赖降级支持：未安装时自动退化为原生 print，杜绝类型检查与运行报错
+try:
+    from rich.console import Console
+    from rich.table import Table
+    from rich.panel import Panel
+except ImportError:
+    import re
+
+    class Panel:
+        def __init__(self, content, title="", border_style="", width=None):
+            self.content = content
+            self.title = title
+
+    class Table:
+        def __init__(self, title=""):
+            self.title = title
+            self.columns = []
+            self.rows = []
+
+        def add_column(self, col):
+            self.columns.append(col)
+
+        def add_row(self, *row):
+            self.rows.append(list(row))
+
+    class Console:
+        def print(self, *args, **kwargs):
+            for a in args:
+                if isinstance(a, Panel):
+                    print(f"\n┌─ {a.title} ─")
+                    print(a.content)
+                    print("└" + "─" * 40)
+                elif isinstance(a, Table):
+                    print(f"\n=== {a.title} ===")
+                    print(" | ".join(self.columns))
+                    for r in a.rows:
+                        print(" | ".join(r))
+                else:
+                    text = re.sub(r'\[/?[a-zA-Z0-9_\s#=]+\]', '', str(a))
+                    print(text)
+
+try:
+    import igraph as ig
+except ImportError:
+    ig = None
 
 from blackhole_diffusion import (
-    MainController,
-    CSRBlackholeDevourer,
     StaticMethod,
-    GraphDataEncoder,
-    DataInitialization,
     Debug,
     chordless_cycle_basis,
 )
@@ -69,9 +108,25 @@ class CycleAuditor:
         broken = 0
         pure = 0
         length_dist: Dict[int, int] = {}
+        def _is_chordless(cyc_nodes: set) -> bool:
+            if len(cyc_nodes) < 3:
+                return False
+            for u in cyc_nodes:
+                if len(self.global_adj.get(u, set()) & cyc_nodes) != 2:
+                    return False
+            start = next(iter(cyc_nodes))
+            visited = {start}
+            queue = [start]
+            while queue:
+                curr = queue.pop()
+                for nxt in self.global_adj.get(curr, ()):
+                    if nxt in cyc_nodes and nxt not in visited:
+                        visited.add(nxt)
+                        queue.append(nxt)
+            return len(visited) == len(cyc_nodes)
+
         for cyc in cycles_list:
-            sorted_cyc = sorted(cyc)
-            if StaticMethod.verify_chordless_cycle(sorted_cyc, self.global_adj):
+            if _is_chordless(cyc):
                 pure += 1
                 l = len(cyc)
                 length_dist[l] = length_dist.get(l, 0) + 1
@@ -263,40 +318,38 @@ class AlgorithmDispatcher:
     def get_gap_ratio(self) -> float:
         if AlgorithmDispatcher._gap_cache is not None:
             return AlgorithmDispatcher._gap_cache
-        try:
-            import igraph as ig
-            g_ig = ig.Graph.TupleList(self.raw_edges)
-            t0 = time.perf_counter()
-            nx.triangles(self.g_nx)
-            t_nx_std = time.perf_counter() - t0
-            t1 = time.perf_counter()
-            g_ig.transitivity_local_undirected()
-            t_ig_std = time.perf_counter() - t1
-            ratio = min(max((t_nx_std / t_ig_std if t_ig_std > 0 else self.DEFAULT_GAP), 3.0), 1500.0)
-            Console().print(Panel(
-                f"➤ 目标拓扑: |V|={self.g_nx.number_of_nodes()}, |E|={self.g_nx.number_of_edges()}\n"
-                f"➤ Python (密集交集) 耗时: {t_nx_std:.4f}s\n"
-                f"➤ C++ (连续寻址) 耗时: {t_ig_std:.4f}s\n"
-                f"真理测定: Python 动态内存对象残障阻力为 {ratio:.2f}倍。",
-                title="⚠️ 极渊探底：语言算力鸿沟",
-                border_style="red",
-                width=85
-            ))
-            AlgorithmDispatcher._gap_cache = ratio
-            return ratio
-        except:
-            return self.DEFAULT_GAP
+        if ig is not None:
+            try:
+                g_ig = ig.Graph.TupleList(self.raw_edges)
+                t0 = time.perf_counter()
+                nx.triangles(self.g_nx)
+                t_nx_std = time.perf_counter() - t0
+                t1 = time.perf_counter()
+                g_ig.transitivity_local_undirected()
+                t_ig_std = time.perf_counter() - t1
+                ratio = min(max((t_nx_std / t_ig_std if t_ig_std > 0 else self.DEFAULT_GAP), 3.0), 1500.0)
+                Console().print(Panel(
+                    f"➤ 目标拓扑: |V|={self.g_nx.number_of_nodes()}, |E|={self.g_nx.number_of_edges()}\n"
+                    f"➤ Python (密集交集) 耗时: {t_nx_std:.4f}s\n"
+                    f"➤ C++ (连续寻址) 耗时: {t_ig_std:.4f}s\n"
+                    f"真理测定: Python 动态内存对象残障阻力为 {ratio:.2f}倍。",
+                    title="⚠️ 极渊探底：语言算力鸿沟",
+                    border_style="red",
+                    width=85
+                ))
+                AlgorithmDispatcher._gap_cache = ratio
+                return ratio
+            except Exception:
+                pass
+        return self.DEFAULT_GAP
 
     def get_active_algorithms(self):
         active = []
         edge_limit = 2000
         for name in self.ALGO_REGISTRY.keys():
             if name == "iGraph":
-                try:
-                    import igraph
+                if ig is not None:
                     active.append(name)
-                except:
-                    pass
             elif "NX" in name:
                 if self.edge_count > edge_limit:
                     Console().print(f"⚠️ {name} 跳过：边数 {self.edge_count} > {edge_limit} 限制")
@@ -321,7 +374,8 @@ class AlgorithmDispatcher:
         return sanitized_cycles
 
     def _algo_igraph(self):
-        import igraph as ig
+        if ig is None:
+            return []
         nodes = sorted(list(set(n for edge in self.raw_edges for n in edge)))
         node_to_id = {node: i for i, node in enumerate(nodes)}
         id_to_node = {i: node for i, node in enumerate(nodes)}

@@ -29,8 +29,8 @@ for cycle in cycles:
     print(sorted(cycle))
 ```
 
-See [examples_basic_usage.py](examples_basic_usage.py) for more examples.  
-更多示例见 [examples_basic_usage.py](examples_basic_usage.py)。
+See [examples/examples_basic_usage.py](examples/examples_basic_usage.py) for more examples.  
+更多示例见 [examples/examples_basic_usage.py](examples/examples_basic_usage.py)。
 
 ## Refactoring overview / 重构概述
 

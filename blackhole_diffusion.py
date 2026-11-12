@@ -57,7 +57,30 @@ try:
 except Exception:
     wintypes = None
 
-from debug_util import Debug
+# ── 纯静默调试桩（对外发布版本零外部依赖，保持生产环境静默） ──
+class Debug:
+    @staticmethod
+    def info(*args, **kwargs): pass
+    @staticmethod
+    def detail(*args, **kwargs): pass
+    @staticmethod
+    def done(*args, **kwargs): pass
+    @staticmethod
+    def section(*args, **kwargs): pass
+    @staticmethod
+    def timing(*args, **kwargs): pass
+    @staticmethod
+    def warn(*args, **kwargs): pass
+    @staticmethod
+    def fuse(*args, **kwargs): pass
+    @staticmethod
+    def newline(*args, **kwargs): pass
+    @staticmethod
+    def progress(*args, **kwargs): pass
+    @staticmethod
+    def elimination(*args, **kwargs): pass
+    @staticmethod
+    def class_debug(*args, **kwargs): pass
 
 
 

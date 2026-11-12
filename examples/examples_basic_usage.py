@@ -4,6 +4,12 @@ Blackhole Diffusion · 基础用法示例
 零外部依赖，只需要 Python 3.9+ 标准库。
 """
 
+import os
+import sys
+
+# 保证直接运行本文件时能正确导入根目录的 blackhole_diffusion
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from blackhole_diffusion import chordless_cycle_basis
 
 # ======================================================
