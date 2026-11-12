@@ -34,6 +34,12 @@ classifiers = [
 requires-python = ">=3.8"
 dependencies = []
 
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+]
+
 [project.urls]
 Homepage = "https://github.com/m15154178071-cmyk/blackhole-diffusion"
 Repository = "https://github.com/m15154178071-cmyk/blackhole-diffusion"
@@ -41,3 +47,12 @@ Issues = "https://github.com/m15154178071-cmyk/blackhole-diffusion/issues"
 
 [tool.setuptools]
 py-modules = ["blackhole_diffusion"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-ra -q"
+markers = [
+    "benchmark: performance and large-graph benchmark tests",
+    "slow: tests that may take a long time",
+]
