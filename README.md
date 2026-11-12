@@ -1,26 +1,27 @@
-# blackhole-diffusion（黑洞弥散）
+# Blackhole Diffusion（黑洞弥散）
 
-> A pure-Python graph engine for extracting full-rank chordless cycle bases.  
-> Zero dependencies — runs anywhere Python runs.
+> A pure-Python library for customizable chordless cycle-basis detection.  
+> 纯 Python 标准库实现的可定制无弦环基检测库。
 
-> 纯 Python 标准库实现的图算法引擎，专注于提取满秩无弦环基。零外部依赖，即插即用。
+Blackhole Diffusion explores candidate cycles, expands cycle boundaries, and uses incremental GF(2) elimination to construct a full-rank chordless cycle basis. It is **not a strict minimum cycle basis (MCB) solver**: a full-rank chordless basis does not imply a globally minimum total cycle length.
 
----
+Blackhole Diffusion 通过候选环搜索、黑洞边界扩展和 GF(2) 增量消元构造满秩无弦环基。它**不承诺求得严格意义上的最小环基（MCB）**：满秩无弦环基不等于总环长全局最小。
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/m15154178071-cmyk/blackhole-diffusion/blob/main/try_blackhole.ipynb)
+> **Refactoring status / 重构状态**  
+> This README records the refactoring baseline and acceptance plan. The modular architecture, correctness improvements, and performance changes described below are targets—not claims that the refactor has already been implemented or verified.  
+> 本 README 记录重构基线与验收方案。下述模块架构、正确性改进和性能变化均为目标，不代表重构已完成或已通过验证。
 
-
-## 📦 Installation / 安装
+## Installation / 安装
 
 ```bash
 pip install blackhole-diffusion
 ```
 
----
+The library aims to use only the Python standard library at runtime. Optional third-party packages may be used for external benchmark comparisons; they are not required by the core library.
 
-## 🚀 Quick Start / 快速开始
+核心库目标是仅依赖 Python 标准库运行。外部基准对比可能使用第三方包，但核心库不依赖这些包。
 
-### 基础用法 / Basic Usage
+## Quick start / 快速开始
 
 ```python
 from blackhole_diffusion import chordless_cycle_basis
@@ -28,194 +29,106 @@ from blackhole_diffusion import chordless_cycle_basis
 edges = {(1, 2), (2, 3), (3, 1), (3, 4), (4, 1)}
 cycles = chordless_cycle_basis(edges)
 
-for cyc in cycles:
-    print(sorted(cyc))
+for cycle in cycles:
+    print(sorted(cycle))
 ```
 
-> 更多示例见 [examples_basic_usage.py](examples_basic_usage.py)。
+See [examples_basic_usage.py](examples_basic_usage.py) for more examples.  
+更多示例见 [examples_basic_usage.py](examples_basic_usage.py)。
 
-### 正确性验证 / Verification
+## Refactoring plan / 重构方案
 
-Blackhole Diffusion 输出的是**近似最小环基**（near-MCB），满秩且无弦，但不保证全局最短总环长。验证正确性需要外部基线对比：
+The goal is to make the implementation easier to maintain, test, extend, and use independently—without replacing or simplifying the algorithm's core mechanisms.
 
-```bash
-pip install igraph networkx rich
-python benchmark.py
-```
+重构目标是在不替换或简化核心算法机制的前提下，让实现更易维护、测试、扩展和独立使用。
 
-也可以对单张图进行验证 / You can also verify a single graph:
+### Target module boundaries / 目标模块边界
 
-```bash
-python benchmark.py your_graph.txt out.txt 黑洞弥散
-```
+| Area | Responsibility |
+| --- | --- |
+| Graph data | Graph initialization, adjacency, edge IDs, connected components, and graph rank |
+| Encoding | Node/edge encoding and restoration |
+| Validation | Simple-cycle, chordless-cycle, and chordless-path validation |
+| Search | Candidate cycle and path discovery across lengths |
+| Blackhole construction | Core-edge selection, boundary expansion, and long-cycle completion |
+| Elimination | CSR representation, GF(2) elimination, and incremental independence checks |
+| Candidate management | De-duplication, ranking, tiers, and updates |
+| Scheduling | Iteration, state transitions, and termination |
+| Public API | Input normalization and result conversion |
 
-这会自动用 iGraph 的精确 MCB 做交叉审计，确认满秩无弦、环长漂移和基边膨胀是否在可接受范围内。确认无误后，生产环境只需 `blackhole_diffusion.py` 一个文件，零依赖部署。详见 [CAUTION.md](CAUTION.md)。
+以上是目标职责划分，不要求机械地一项对应一个文件。最终边界应结合更新后的源码审查确定。
 
-Blackhole Diffusion outputs a **near-MCB** (full-rank chordless cycle basis) but does not guarantee the globally shortest total cycle length. To verify correctness against an external baseline, run the benchmark script. It will cross-audit with iGraph's exact MCB. Once verified, you can deploy with just `blackhole_diffusion.py` — zero dependencies. See [CAUTION.md](CAUTION.md).
+### Shared data contracts / 统一数据契约
 
----
+The recorded implementation represents a cycle or path as `(edge_ids, edges, nodes)`:
 
-## 💡 Core Features / 核心特性
+- `edge_ids`: identifiers used internally, including by elimination.
+- `edges`: original graph edges, used for result restoration and edge-level checks.
+- `nodes`: vertices in the structure.
 
-- **零外部依赖**：100% Python 标准库构建。无 C 编译、无 wheel 文件、无第三方包。任何 Python 3.9+ 环境即插即用。  
-  **Zero External Dependencies**: Built entirely with Python's standard library. No C compilation, no wheel files, and no third-party packages. Plug-and-play in any Python 3.9+ environment.
+Keep these meanings explicit at module boundaries. Do not mix node sets with edge sets or silently combine incompatible edge-ID spaces.
 
-- **满秩正确性保证**：输出结果 100% 满秩解构，所有环代数独立且绝对无弦。30 个基准数据集（1000–10000 边）全部审计通过。  
-  **Full-Rank Correctness Guarantee**: Outputs are 100% full-rank decompositions—every cycle is algebraically independent and absolutely chordless. Verified across 30 benchmark datasets (1,000–10,000 edges).
+当前记录中的环或路径使用 `(edge_ids, edges, nodes)` 表示：`edge_ids` 用于内部处理（包括消元），`edges` 是用于结果还原和边关系检查的原始图边，`nodes` 是结构中的顶点。模块边界应明确这些语义，避免混用节点集和边集，或混淆不同的边 ID 空间。
 
-- **部署灵活性**：专为 AWS Lambda、Docker 精简镜像、金融审计集群、在线编程平台等无法编译 C 扩展的环境设计。  
-  **Deployment Flexibility**: Designed specifically for environments where compiling C extensions is impossible or restricted.
+### Validation and elimination / 验证与消元
 
-- **稠密到稀疏全覆盖**：支持从纯 3-环稠密图到纯 4-环网格再到混合环长大规模图的全谱系拓扑。  
-  **Dense to Sparse**: Handles the full spectrum of topologies.
+The recorded baseline includes `_validate_and_build_local_path()` for shared structural checks such as node/edge counts, edge membership, local adjacency construction, and connectivity. Path and cycle degree constraints should then be checked according to their respective structure.
 
-- **诚实声明的近似 MCB**：追求满秩正确性，不伪装精确最小环基。偏离是系统性的、方向恒定的（从不比精确 MCB 更短，只会更长）。详见[基准报告](docs/Blackhole_Benchmark_Report.md)和 [CAUTION.md](CAUTION.md)。  
-  **Near-MCB, Honestly Stated**: Pursues full-rank correctness without pretending to be the exact MCB. Drift is systematic and directionally consistent. See [benchmark report](docs/Blackhole_Benchmark_Report.md) and [CAUTION.md](CAUTION.md).
+The elimination layer should keep the responsibilities of `BlockwiseCycleReducer`, `SingleDimensionCycleReducer`, and `CSRBlackholeDevourer` clear while exposing consistent inputs and outputs. The CSR implementation's compact `array.array('Q')` representation and incremental GF(2) independence checks are important design elements to preserve where confirmed by the updated source.
 
----
+当前记录中的基线包含 `_validate_and_build_local_path()`，用于共享的结构检查，例如节点数与边数关系、边的归属、局部邻接构建和连通性；之后再按路径或环分别验证度数约束。
 
-## 🛠 Algorithmic Architecture / 算法架构
+消元层应明确 `BlockwiseCycleReducer`、`SingleDimensionCycleReducer` 和 `CSRBlackholeDevourer` 的职责，同时提供一致的输入输出。若更新后的源码确认仍采用 CSR 紧凑存储 `array.array('Q')` 和 GF(2) 增量独立性判断，应在重构中保留这些设计要点。
 
-### 边向扩展 + 碰撞消元
+### Algorithm mechanisms to preserve / 必须保留的算法机制
 
-传统环搜索算法（包括 igraph）依赖最短生成树的动态维护。Blackhole Diffusion 采用**边向扩展 + 碰撞消元**：不维护全局生成树，按环长维度逐维搜索无弦环，边搜边消元，用当前基的最长环作为动态剪枝上界。
+- Multi-dimensional candidate-cycle mining.
+- Chordless-cycle and independent-path search.
+- Blackhole boundary detection and expansion.
+- Dynamic candidate ranking and management.
+- CSR sparse elimination and GF(2) independence checks.
+- Incremental elimination.
+- Long-cycle completion and local Horton completion.
+- A spanning-tree fundamental-cycle fallback.
 
-Traditional cycle-search algorithms (including igraph) rely on dynamically maintaining a shortest spanning tree. Blackhole Diffusion uses **edge-wise expansion combined with collision elimination**: it does not maintain a global spanning tree but searches dimension-by-dimension for chordless cycles based on cycle length, eliminating candidates on-the-fly. The longest cycle in the current basis serves as a dynamic pruning upper bound.
+重构应保留多维候选环挖掘、无弦环与独立路径搜索、黑洞边界识别和扩展、候选动态排序、CSR 稀疏消元与 GF(2) 独立性判断、增量消元、长环及局部 Horton 补全，以及生成树基本环兜底。不能将完整流程简化成普通环搜索加生成树兜底。
 
-### 消元引擎：CSRBlackholeDevourer
+## Correctness and acceptance criteria / 正确性与验收标准
 
-核心消元器采用 **CSR（压缩稀疏行）** 格式，内置黑洞边界检测与交替湮灭机制。擅长短环和稠密图，在纯 4-环网格上反超 igraph C 实现。
+A refactored version should be accepted only after it has been checked against the updated implementation and tests. At minimum, verify that:
 
-The core eliminator uses **Compressed Sparse Row (CSR)** format, featuring built-in black-hole boundary detection and alternating annihilation mechanisms. Excels at short cycles and dense graphs, outperforming igraph's C implementation on pure 4-cycle grids.
+1. Every output edge is an edge in the input graph.
+2. Every output is a valid simple cycle and is chordless.
+3. Output cycles are linearly independent over GF(2).
+4. The number of cycles equals the target cycle-space rank, `E - V + C`, where `C` is the number of connected components (with the graph's vertex/edge conventions stated and consistently applied).
+5. No cycle is duplicated.
+6. Disconnected graphs are handled correctly.
+7. Vertex-set and original-edge-set input interfaces have consistent result semantics.
+8. The result is described as a full-rank chordless cycle basis—not as a strict MCB unless that property is separately proved and tested.
 
-### 语言税：~15×
+重构版本必须结合更新后的实现和测试验收，至少验证：输出边均来自输入图；每个结果都是合法简单无弦环；环在 GF(2) 上线性独立；环数量等于目标环空间秩 `E - V + C`（其中 `C` 为连通分量数，并统一说明顶点和边的计数约定）；无重复环；正确处理非连通图；顶点集合与原始边集合两种输入接口语义一致；并且只在另行证明和测试后才称为严格 MCB。
 
-Python 相对于 C++ 有约 15 倍的字节码层面固有开销。但在纯 4-环网格上，这一差距被算法效率完全逆转：
+## Benchmarking / 基准测试
 
-Python incurs an inherent ~15× bytecode-level overhead compared to C++. However, this gap is completely reversed on pure 4-cycle grids:
+Architecture changes alone do not establish a performance improvement. Compare the old and refactored versions on the same datasets, Python version, and test environment. Record:
 
-| Dataset           | BH (Py)  | igraph (C) |
-| ----------------- | -------- | ---------- |
-| edge007 (5k 边)   | 5.56s    | 8.70s      |
-| edge017 (10k 边)  | 23.38s   | 52.82s     |
+- Total runtime and peak memory.
+- Number of candidates and elimination operations.
+- Final basis size and cycle-length distribution.
+- Correctness audit results, including rank and chordlessness.
 
-> 规模越大差距越显著，从 1.6 倍扩大到 2.3 倍。
+架构拆分本身不能证明性能提升。前后版本必须使用相同数据集、Python 版本和测试环境进行对比，并记录总运行时间、峰值内存、候选数量、消元次数、最终环基数量、环长分布及秩和无弦性等正确性审计结果。
 
----
+Optional external tools can be used as independent comparison baselines; they are not runtime dependencies of the library. Results should distinguish a full-rank chordless basis from an exact minimum cycle basis.
 
-## 📊 Benchmarks / 基准测试
+可选地使用外部工具作为独立对照基线，但它们不是本库的运行依赖。报告应明确区分满秩无弦环基与精确最小环基。
 
-> 所有数据集均通过满秩审计（Rank 100% 对齐，0 弦环，0 碎环）。
+## Development notes / 开发说明
 
-### 1000 边级别：三方对比（iGraph vs NetworkX vs BH）
+The refactoring record dated 2026-11-12 was prepared from the supplied `Blackhole_Base(1).py` source. The repository code may not yet match that source or this plan. Revisit the architecture, API compatibility, and every performance or correctness claim after the updated code is available; publish measured results only after reproducible tests.
 
-| Dataset | V/E/R       | iGraph MCB 终点 | iGraph  | NX-MCB   | BH     | BH vs NX |
-| ------- | ----------- | --------------- | ------- | -------- | ------ | -------- |
-| edge001 | 63/1003/941 | 3               | 0.02s   | 25.1s    | 0.23s  | 110×     |
-| edge003 | 333/990/658 | 6               | 0.08s   | 139.5s   | 1.83s  | 76×      |
-| edge006 | 200/1000/801| 5               | 0.06s   | 85.9s    | 1.28s  | 67×      |
-| edge007 | 484/924/441 | 4               | 0.22s   | 197.7s   | 0.51s  | 391×     |
-| edge010 | 250/1000/751| 5               | 0.08s   | 106.8s   | 0.75s  | 142×     |
+2026-11-12 的重构记录依据用户提供的 `Blackhole_Base(1).py` 整理，仓库当前代码可能尚未与该源码或本方案一致。待更新代码提交后，应重新审查架构、接口兼容性及所有性能和正确性声明；只有在可复现测试完成后，才发布实测结论。
 
-> 完整 10 数据集分析见 [**1000 边基准报告**](docs/benchmark_1k.md)。
+## License / 许可证
 
-### 5000 边级别
-
-| Dataset | V / E / R         | iGraph MCB 终点 | iGraph (C) | BH (Py)  | Ratio     |
-| ------- | ----------------- | --------------- | ---------- | -------- | --------- |
-| edge001 | 141/5072/4932     | 3               | 0.44s      | 3.35s    | 7.6×      |
-| edge002 | 223/4997/4775     | 4               | 0.71s      | 8.24s    | 11.6×     |
-| edge003 | 1666/4989/3324    | 7               | 2.88s      | 43.82s   | 15.2×     |
-| edge004 | 1000/4975/3976    | 5               | 4.12s      | 35.87s   | 8.7×      |
-| edge005 | 1666/4998/3333    | 12              | 3.40s      | 40.63s   | 11.9×     |
-| edge006 | 1000/5000/4001    | 7               | 3.93s      | 35.84s   | 9.1×      |
-| edge007 | 2500/4900/2401    | 4               | 8.70s      | 5.56s    | **0.64×** |
-| edge008 | 2500/5400/2901    | 12              | 5.46s      | 41.65s   | 7.6×      |
-| edge009 | 2500/5000/2501    | 11              | 6.12s      | 65.88s   | 10.8×     |
-| edge010 | 1250/5000/3751    | 6               | 5.09s      | 45.39s   | 8.9×      |
-
-### 10000 边级别
-
-| Dataset | V / E / R         | iGraph MCB 终点 | iGraph (C) | BH (Py)   | Ratio     |
-| ------- | ----------------- | --------------- | ---------- | --------- | --------- |
-| edge011 | 200/10053/9854    | 3               | 1.33s      | 8.44s     | 6.3×      |
-| edge012 | 316/10167/9852    | 4               | 3.54s      | 25.75s    | 7.3×      |
-| edge013 | 3333/9990/6658    | 7               | 14.98s     | 202.63s   | 13.5×     |
-| edge014 | 2000/9975/7976    | 6               | 10.86s     | 181.94s   | 16.8×     |
-| edge015 | 3333/9999/6667    | 13              | 16.40s     | 93.22s    | 5.7×      |
-| edge016 | 2000/10000/8001   | 7               | 13.50s     | 107.46s   | 8.0×      |
-| edge017 | 4900/9660/4761    | 4               | 52.82s     | 23.38s    | **0.44×** |
-| edge018 | 4900/10660/5761   | 13              | 27.89s     | 139.89s   | 5.0×      |
-| edge019 | 5000/10000/5001   | 11              | 55.70s     | 291.22s   | 5.2×      |
-| edge020 | 2500/10000/7501   | 7               | 82.22s     | 144.83s   | 1.8×      |
-
-> **注**："iGraph MCB 终点" 是 iGraph 精确最小环基的最长环长度，仅作拓扑复杂度参考。BH 是近似 MCB，环长终点通常更高。纯 4-环网格（edge007/017）上 BH 反超 igraph。长环混合图候选池膨胀导致耗时上升——这是 CSR 消元在长环拓扑上的已知特征，非缺陷。Ratio = BH 耗时 / iGraph 耗时（<1 表示 BH 更快）。完整分析（环长漂移、基边膨胀、MCB 精确命中率）见 [**基准测试报告**](docs/Blackhole_Benchmark_Report.md)。
-
-> **Note**: "iGraph MCB endpoint" is the longest cycle length in iGraph's exact minimum cycle basis, for topological complexity reference only. BH is near-MCB, typically with longer cycles. On pure 4-cycle grids (edge007/017), BH outperforms igraph. Candidate pool expansion on mixed graphs with long cycles increases runtime — a known characteristic of CSR elimination on long-cycle topologies, not a defect. Ratio = BH time / iGraph time (<1 means BH is faster). See [**benchmark report**](docs/Blackhole_Benchmark_Report.md) for full analysis (cycle length drift, base-edge inflation, MCB exact hit rate).
-
----
-
-## 📐 Mathematical Guarantees / 数学保证
-
-- **满秩无弦环基**：每个环是简单的、无弦的、代数独立的。秩 = E − V + C（连通分量数）。全部基准数据集验证通过。  
-  **Full-Rank Chordless Cycle Basis**: Every cycle is simple, chordless, and algebraically independent. Rank = E − V + C (number of connected components). Verified on all benchmark datasets.
-
-- **安全上界定理**：已有一个满秩无弦环基 B，其最长环长度为 M。所有可能存在的更优基的环长均 ≤ M。M 是后续所有环搜索的精确剪枝上界（存在性证明保证，非启发式）。  
-  **Safe Upper Bound Theorem**: Given a full-rank chordless cycle basis B with maximum cycle length M, all potentially better bases must have cycles of length ≤ M. M serves as an exact pruning upper bound for all subsequent cycle searches (existence-proven, not heuristic).
-
----
-
-## 🎯 Use Cases / 典型场景
-
-- **GIS 自动化** — 空间拓扑重建、矢量线转面、地籍地块属性映射  
-  **GIS Automation** — spatial topology reconstruction, vector line to polygon, cadastral parcel attribute mapping
-
-- **无服务器 & 微服务** — AWS Lambda、Cloud Functions 即插即用  
-  **Serverless & Microservices** — plug-and-play on AWS Lambda, Cloud Functions
-
-- **电路网表分析** — 反馈回路追踪、回路检查、拓扑块隔离  
-  **Circuit Netlist Analysis** — feedback loop tracing, loop checking, topological block isolation
-
-- **分子拓扑环提取** — 零依赖流水线中直接识别二级结构环  
-  **Molecular Topology** — direct identification of secondary structure rings in zero-dependency pipelines
-
-- **金融隔离集群** — 纯 Python 代码秒级审计通过  
-  **Financial Isolation Clusters** — pure Python code passes security audits instantly
-
----
-
-## ⚖️ FAQ
-
-### 输出的是精确最小环基（MCB）吗？ / Does it output the exact Minimum Cycle Basis (MCB)?
-
-**不是。** Blackhole Diffusion 追求满秩正确性，不保证全局最短总环长。偏离是系统性的：从不比精确 MCB 更短，只会更长。1000 边级别 70% 的图基边膨胀 <1%，规模越大、环长跨度越大，偏离越明显。如果你需要严格 MCB 且 igraph 可用，请直接用 igraph。如果你在无法安装 igraph 的环境中需要一份正确可用的环基，Blackhole Diffusion 就是为你准备的。详见[**基准报告**](docs/Blackhole_Benchmark_Report.md)和 [CAUTION.md](CAUTION.md)。
-
-**No.** Blackhole Diffusion pursues full-rank correctness without guaranteeing globally minimal total cycle length. The drift is systematic: never shorter than the exact MCB, only longer. At the 1,000-edge scale, 70% of graphs have <1% base-edge inflation; drift increases with scale and cycle-length span. If you need strict MCB and igraph is available, use igraph. If you need a correct, usable cycle basis in an environment where igraph can't be installed, Blackhole Diffusion is for you. See [**benchmark reports**](docs/Blackhole_Benchmark_Report.md) and [CAUTION.md](CAUTION.md).
-
-### 为什么不直接用 igraph？ / Why not just use igraph?
-
-igraph 需要编译 C 核心。在 AWS Lambda、Docker 精简镜像、金融审计集群等环境中，安装编译二进制往往被禁止或需数周审批。Blackhole Diffusion 解决的是 **igraph 进不去的场景**。两者互补，非替代。
-
-igraph requires compiling C cores. In environments like AWS Lambda, Docker minimal images, or financial audit clusters, installing compiled binaries is often prohibited or requires weeks of approval. Blackhole Diffusion addresses scenarios where **igraph cannot be deployed**. They are complementary, not substitutes.
-
-### 环长分布为什么和 igraph 不完全一致？ / Why isn't the cycle-length distribution identical to igraph's?
-
-两者都是数学上有效的满秩基。Blackhole Diffusion 的边向扩展策略倾向于找到更长、更多样的环——这是刻意设计选择，追求环长多样性而非绝对最短总环长。在短环稠密图和纯网格图上，两者输出通常精确对齐。
-
-Both produce mathematically valid full-rank bases. Blackhole Diffusion's edge-wise expansion strategy intentionally favors longer, more diverse cycles—this is by design, prioritizing diversity over absolute minimal total cycle length. Outputs typically align exactly on dense short-cycle graphs and pure grids.
-
-### 什么时候快，什么时候慢？ / When is it fast or slow?
-
-| 场景 / Scenario                             | 性能 / Performance                                    |
-| ------------------------------------------- | ----------------------------------------------------- |
-| 纯 3-环稠密图 / Pure 3-cycle dense graphs    | 🟢 **快 / Fast** — 甚至反超 igraph C 实现             |
-| 纯 4-环网格 / Pure 4-cycle grids             | 🟢 **快 / Fast** — outperforms igraph's C impl.       |
-| 短环混合图 (MCB ≤ 6) / Short-cycle mixed     | 🟡 **中等 / Medium** — 通常 10–50s @ 5000 边          |
-| 长环混合图 (MCB ≥ 7) / Long-cycle mixed      | 🔴 **慢 / Slow** — 候选池膨胀，但结果正确              |
-
----
-
-## 📜 License / 许可证
-
-**MIT License** — free to use, modify, and distribute.  
-**MIT License** — 自由使用、修改、分发。
+MIT License. See the [LICENSE](LICENSE) file.
