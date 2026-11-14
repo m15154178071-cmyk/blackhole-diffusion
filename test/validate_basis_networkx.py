@@ -8,14 +8,19 @@ Expected input format:
 The cycle file format matches the ``out.txt`` files written by benchmark.py.
 NetworkX checks graph/cycle structure; a small bitset GF(2) eliminator checks
 linear independence of the returned cycle edge sets.
+
+Usage examples:
+  python test/validate_basis_networkx.py edge/edge001.txt out.txt
+  python test/validate_basis_networkx.py edge/ out/
 """
 
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Iterator
 
 try:
     import networkx as nx
@@ -73,11 +78,10 @@ def gf2_rank(vectors: Iterable[int]) -> int:
     return rank
 
 
-def validate(graph: nx.Graph, cycles: list[tuple[int, ...]]) -> int:
+def validate(graph: nx.Graph, cycles: list[tuple[int, ...]]) -> tuple[bool, dict[str, object]]:
     components = nx.number_connected_components(graph) if graph.number_of_nodes() else 0
     target_rank = graph.number_of_edges() - graph.number_of_nodes() + components
 
-    # Stable edge positions make each cycle an edge-incidence bit vector.
     edge_ids = {frozenset(edge): i for i, edge in enumerate(graph.edges())}
     vectors: list[int] = []
     seen: set[frozenset[int]] = set()
@@ -101,8 +105,6 @@ def validate(graph: nx.Graph, cycles: list[tuple[int, ...]]) -> int:
             errors.append(f"{label}: vertices not present in graph: {sorted(missing)}")
             continue
 
-        # An induced subgraph is a chordless cycle iff it is connected and
-        # every vertex has induced degree two.
         induced = graph.subgraph(node_set)
         if not nx.is_connected(induced) or any(degree != 2 for _, degree in induced.degree()):
             errors.append(f"{label}: is not a simple chordless cycle in the input graph")
@@ -110,47 +112,138 @@ def validate(graph: nx.Graph, cycles: list[tuple[int, ...]]) -> int:
 
         vector = 0
         for u, v in induced.edges():
-            vector |= 1 << edge_ids[frozenset((u, v))]
+            edge = frozenset((u, v))
+            if edge not in edge_ids:
+                edge = frozenset((v, u))
+            vector |= 1 << edge_ids[edge]
         vectors.append(vector)
 
     actual_rank = gf2_rank(vectors)
     independent = actual_rank == len(vectors)
     full_rank = actual_rank == target_rank
-
-    print(f"Nodes: {graph.number_of_nodes()}")
-    print(f"Edges: {graph.number_of_edges()}")
-    print(f"Connected components: {components}")
-    print(f"Theoretical cycle-space rank (E - V + C): {target_rank}")
-    print(f"Cycles read: {len(cycles)}")
-    print(f"Structurally valid cycles: {len(vectors)}")
-    print(f"GF(2) rank: {actual_rank}")
-    print(f"Independent: {'PASS' if independent else 'FAIL'}")
-    print(f"Full rank: {'PASS' if full_rank else 'FAIL'}")
-
-    if errors:
-        print("Cycle errors:")
-        for error in errors:
-            print(f"  - {error}")
     passed = not errors and independent and full_rank and len(cycles) == target_rank
-    print(f"Overall: {'PASS' if passed else 'FAIL'}")
-    return 0 if passed else 1
+
+    summary = {
+        "nodes": graph.number_of_nodes(),
+        "edges": graph.number_of_edges(),
+        "components": components,
+        "target_rank": target_rank,
+        "cycles_read": len(cycles),
+        "structurally_valid": len(vectors),
+        "gf2_rank": actual_rank,
+        "independent": independent,
+        "full_rank": full_rank,
+        "errors": errors,
+        "passed": passed,
+    }
+    return passed, summary
+
+
+def match_cycle_file(graph_file: Path, cycles_dir: Path) -> Path | None:
+    """Find the matching cycle file for an edge file: e.g. edge001.txt -> out_001.txt."""
+    digits = re.search(r"(\d+)", graph_file.name)
+    if not digits:
+        return None
+    suffix = digits.group(1)
+    candidates = [
+        cycles_dir / f"out_{suffix}.txt",
+        cycles_dir / f"out{suffix}.txt",
+        cycles_dir / f"basis_{suffix}.txt",
+        cycles_dir / f"cycles_{suffix}.txt",
+        cycles_dir / f"{graph_file.stem}.txt",
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    # generic fallback: scan all files for the same numeric suffix
+    for candidate in sorted(cycles_dir.glob("*.txt")):
+        if suffix in candidate.name:
+            return candidate
+    return None
+
+
+def validate_pair(graph_file: Path, cycle_file: Path) -> tuple[bool, dict[str, object]]:
+    graph = read_graph(graph_file)
+    cycles = read_cycles(cycle_file)
+    return validate(graph, cycles)
+
+
+def iter_graph_cycle_pairs(graph_root: Path, cycle_root: Path) -> Iterator[tuple[Path, Path]]:
+    if graph_root.is_file():
+        if cycle_root.is_file():
+            yield graph_root, cycle_root
+        else:
+            raise ValueError(f"Cycle file is not a file: {cycle_root}")
+        return
+
+    if not graph_root.is_dir() or not cycle_root.is_dir():
+        raise ValueError(f"Expected graph and cycle dirs, got {graph_root} and {cycle_root}")
+
+    graph_files = sorted(graph_root.glob("*.txt"))
+    if not graph_files:
+        graph_files = sorted(graph_root.glob("*.edges"))
+
+    for graph_file in graph_files:
+        cycle_file = match_cycle_file(graph_file, cycle_root)
+        if cycle_file is None:
+            print(f"Skipping {graph_file.name}: no matching cycle file in {cycle_root}")
+            continue
+        yield graph_file, cycle_file
+
+
+def print_summary(graph_file: Path, cycle_file: Path, ok: bool, summary: dict[str, object]) -> None:
+    print(f"\n=== {graph_file.name} vs {cycle_file.name} ===")
+    print(f"Nodes: {summary['nodes']}")
+    print(f"Edges: {summary['edges']}")
+    print(f"Connected components: {summary['components']}")
+    print(f"Theoretical cycle-space rank (E - V + C): {summary['target_rank']}")
+    print(f"Cycles read: {summary['cycles_read']}")
+    print(f"Structurally valid cycles: {summary['structurally_valid']}")
+    print(f"GF(2) rank: {summary['gf2_rank']}")
+    print(f"Independent: {'PASS' if summary['independent'] else 'FAIL'}")
+    print(f"Full rank: {'PASS' if summary['full_rank'] else 'FAIL'}")
+    if summary["errors"]:
+        print("Cycle errors:")
+        for error in summary["errors"]:
+            print(f"  - {error}")
+    print(f"Overall: {'PASS' if ok else 'FAIL'}")
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Validate chordless cycle-basis output using NetworkX and GF(2) rank."
+        description=(
+            "Validate chordless cycle-basis output using NetworkX and GF(2) rank. "
+            "Either pass a single graph + cycle file, or two directories to loop over all matches."
+        )
     )
-    parser.add_argument("graph", type=Path, help="input edge-list file, e.g. edge/edge001.txt")
-    parser.add_argument("cycles", type=Path, help="cycle output file, e.g. out.txt")
+    parser.add_argument("graph", type=Path, help="input edge-list file or graph directory")
+    parser.add_argument("cycles", type=Path, help="cycle output file or cycle directory")
     args = parser.parse_args()
 
     try:
-        graph = read_graph(args.graph)
-        cycles = read_cycles(args.cycles)
+        if args.graph.is_file() and args.cycles.is_file():
+            ok, summary = validate_pair(args.graph, args.cycles)
+            print_summary(args.graph, args.cycles, ok, summary)
+            return 0 if ok else 1
+
+        results: list[tuple[Path, Path, bool]] = []
+        for graph_file, cycle_file in iter_graph_cycle_pairs(args.graph, args.cycles):
+            try:
+                ok, summary = validate_pair(graph_file, cycle_file)
+                results.append((graph_file, cycle_file, ok))
+                print_summary(graph_file, cycle_file, ok, summary)
+            except (OSError, ValueError) as exc:
+                print(f"Error validating {graph_file.name} vs {cycle_file.name}: {exc}", file=sys.stderr)
+                results.append((graph_file, cycle_file, False))
+
+        passed = sum(1 for _, _, ok in results if ok)
+        total = len(results)
+        print(f"\nBatch summary: {passed}/{total} PASS")
+        return 0 if passed == total and total > 0 else 1
+
     except (OSError, ValueError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 2
-    return validate(graph, cycles)
 
 
 if __name__ == "__main__":
